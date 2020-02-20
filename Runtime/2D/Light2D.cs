@@ -162,7 +162,6 @@ namespace UnityEngine.Experimental.Rendering.Universal
         int m_PreviousLightOrder = -1;
         int m_PreviousBlendStyleIndex;
         float       m_PreviousLightVolumeOpacity;
-        bool        m_PreviousLightCookieSpriteExists = false;
         Sprite      m_PreviousLightCookieSprite     = null;
         Mesh        m_Mesh;
         int         m_LightCullingIndex             = -1;
@@ -179,7 +178,6 @@ namespace UnityEngine.Experimental.Rendering.Universal
             public int totalLights;
             public int totalNormalMapUsage;
             public int totalVolumetricUsage;
-            public uint blendStylesUsed;
         }
 
         /// <summary>
@@ -285,20 +283,6 @@ namespace UnityEngine.Experimental.Rendering.Universal
             Light2DManager.cullingGroup.SetBoundingSphereCount(currentLightCullingIndex);
         }
 
-        internal static bool IsSceneLit(Camera camera)
-        {
-            for (int layer = 0; layer < Light2DManager.lights.Length; layer++)
-            {
-                List<Light2D> lightList = Light2DManager.lights[layer];
-                for (int lightIndex = 0; lightIndex < lightList.Count; lightIndex++)
-                {
-                    if (lightList[lightIndex].lightType == LightType.Global || lightList[lightIndex].IsLightVisible(camera))
-                        return true;
-                }
-            }
-            return false;
-        }
-
         internal static List<Light2D> GetLightsByBlendStyle(int blendStyleIndex)
         {
             return Light2DManager.lights[blendStyleIndex];
@@ -396,7 +380,6 @@ namespace UnityEngine.Experimental.Rendering.Universal
                     m_LocalBounds = LightUtility.GenerateParametricMesh(ref m_Mesh, m_ShapeLightParametricRadius, m_ShapeLightFalloffSize, m_ShapeLightParametricAngleOffset, m_ShapeLightParametricSides);
                     break;
                 case LightType.Sprite:
-                    m_Mesh.Clear();
                     m_LocalBounds = LightUtility.GenerateSpriteMesh(ref m_Mesh, m_LightCookieSprite, 1);
                     break;
                 case LightType.Point:
@@ -506,9 +489,6 @@ namespace UnityEngine.Experimental.Rendering.Universal
                         if (light.volumeOpacity > 0)
                             returnStats.totalVolumetricUsage++;
                     }
-
-                    uint blendStyleUsed = (uint)(1 << light.blendStyleIndex);
-                    returnStats.blendStylesUsed |= blendStyleUsed;
                 }
 
             }
@@ -544,7 +524,6 @@ namespace UnityEngine.Experimental.Rendering.Universal
             rebuildMesh |= LightUtility.CheckForChange(m_ShapeLightParametricSides, ref m_PreviousShapeLightParametricSides);
             rebuildMesh |= LightUtility.CheckForChange(m_LightVolumeOpacity, ref m_PreviousLightVolumeOpacity);
             rebuildMesh |= LightUtility.CheckForChange(m_ShapeLightParametricAngleOffset, ref m_PreviousShapeLightParametricAngleOffset);
-            rebuildMesh |= LightUtility.CheckForChange(m_LightCookieSprite != null, ref m_PreviousLightCookieSpriteExists);
             rebuildMesh |= LightUtility.CheckForChange(m_LightCookieSprite, ref m_PreviousLightCookieSprite);
             rebuildMesh |= LightUtility.CheckForChange(m_ShapeLightFalloffOffset, ref m_PreviousShapeLightFalloffOffset);
 
