@@ -6,8 +6,8 @@
     "unityRelease": "0a23",
     "displayName": "Universal RP GM",
     "dependencies": {
-        "com.unity.render-pipelines.core": "9.0.0-preview.0",
-        "com.unity.shadergraph": "9.0.0-preview.0"
+        "com.unity.render-pipelines.core": "6.9.2",
+        "com.unity.shadergraph": "6.9.2"
     },
 	"keywords":[
         "graphics",
