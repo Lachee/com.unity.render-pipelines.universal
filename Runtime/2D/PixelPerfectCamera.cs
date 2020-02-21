@@ -158,7 +158,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
             m_Camera.worldToCameraMatrix = offsetMatrix * m_Camera.transform.worldToLocalMatrix;
         }
 
-#if CM_2_3_4_OR_NEWER
+#if true //CM_2_3_4_OR_NEWER
         // Find a pixel-perfect orthographic size as close to targetOrthoSize as possible.
         // Will also put us into Cinemachine compatibility mode.
         internal float CorrectCinemachineOrthoSize(float targetOrthoSize)
