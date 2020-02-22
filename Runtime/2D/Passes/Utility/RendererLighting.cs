@@ -218,7 +218,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
                             removeSelfShadowMaterial = GetRemoveSelfShadowMaterial(incrementingGroupIndex);
                         }
 
-                        if (shadowCasters != null)
+                        if (shadowCasters != null  && shadowCasters.Count > 0))
                         {
                             List<CombineInstance> combine = new List<CombineInstance>();
                             Matrix4x4 baseTransform = shadowCasters[0].transform.worldToLocalMatrix;
