@@ -35,7 +35,8 @@ namespace UnityEngine.Experimental.Rendering.Universal
             "_ShapeLightInvertedFilter0", "_ShapeLightInvertedFilter1", "_ShapeLightInvertedFilter2", "_ShapeLightInvertedFilter3"
         };
 
-        static Renderer2DData s_RendererData;
+        static Renderer2DData s_Renderer2DData;
+        static RenderingData  s_RenderingData;
         static Light2DBlendStyle[] s_BlendStyles;
         static RenderTargetHandle[] s_LightRenderTargets;
         static bool[] s_LightRenderTargetsDirty;
@@ -50,10 +51,11 @@ namespace UnityEngine.Experimental.Rendering.Universal
         static RenderTextureFormat s_RenderTextureFormatToUse = RenderTextureFormat.ARGB32;
         static bool s_HasSetupRenderTextureFormatToUse;
 
-        static public void Setup(Renderer2DData rendererData)
+        static public void Setup(RenderingData renderingData, Renderer2DData renderer2DData)
         {
-            s_RendererData = rendererData;
-            s_BlendStyles = rendererData.lightBlendStyles;
+            s_Renderer2DData = renderer2DData;
+            s_BlendStyles = renderer2DData.lightBlendStyles;
+            s_RenderingData = renderingData;
 
             if (s_LightRenderTargets == null)
             {
@@ -86,7 +88,8 @@ namespace UnityEngine.Experimental.Rendering.Universal
                 s_RemoveSelfShadowMaterials = new Material[totalMaterials];
         }
 
-        static public void CreateRenderTextures(CommandBuffer cmd, int width, int height)
+
+        static public void CreateNormalMapRenderTexture(CommandBuffer cmd)
         {
             if (!s_HasSetupRenderTextureFormatToUse)
             {
@@ -98,7 +101,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
                 s_HasSetupRenderTextureFormatToUse = true;
             }
 
-            RenderTextureDescriptor descriptor = new RenderTextureDescriptor(width, height);
+            RenderTextureDescriptor descriptor = new RenderTextureDescriptor(s_RenderingData.cameraData.cameraTargetDescriptor.width, s_RenderingData.cameraData.cameraTargetDescriptor.height);
             descriptor.colorFormat = s_RenderTextureFormatToUse;
             descriptor.sRGB = false;
             descriptor.useMipMap = false;
@@ -108,50 +111,74 @@ namespace UnityEngine.Experimental.Rendering.Universal
             descriptor.dimension = TextureDimension.Tex2D;
 
             cmd.GetTemporaryRT(s_NormalsTarget.id, descriptor, FilterMode.Bilinear);
-            
-            for (int i = 0; i < s_BlendStyles.Length; ++i)
+        }
+
+        static public void CreateBlendStyleRenderTexture(CommandBuffer cmd, int blendStyleIndex)
+        {
+            if (!s_HasSetupRenderTextureFormatToUse)
             {
-                if (!s_BlendStyles[i].enabled)
-                    continue;
+                if (SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.RGB111110Float))
+                    s_RenderTextureFormatToUse = RenderTextureFormat.RGB111110Float;
+                else if (SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf))
+                    s_RenderTextureFormatToUse = RenderTextureFormat.ARGBHalf;
 
-                float renderTextureScale = Mathf.Clamp(s_BlendStyles[i].renderTextureScale, 0.01f, 1.0f);
-
-                descriptor.width = (int)(width * renderTextureScale);
-                descriptor.height = (int)(height * renderTextureScale);
-                cmd.GetTemporaryRT(s_LightRenderTargets[i].id, descriptor, FilterMode.Bilinear);
-                s_LightRenderTargetsDirty[i] = true;
+                s_HasSetupRenderTextureFormatToUse = true;
             }
 
+            float renderTextureScale = Mathf.Clamp(s_BlendStyles[blendStyleIndex].renderTextureScale, 0.01f, 1.0f);
+            int width = (int)(s_RenderingData.cameraData.cameraTargetDescriptor.width * renderTextureScale);
+            int height = (int)(s_RenderingData.cameraData.cameraTargetDescriptor.height * renderTextureScale);
+
+            RenderTextureDescriptor descriptor = new RenderTextureDescriptor(width, height);
+            descriptor.colorFormat = s_RenderTextureFormatToUse;
+            descriptor.sRGB = false;
+            descriptor.useMipMap = false;
+            descriptor.autoGenerateMips = false;
+            descriptor.depthBufferBits = 0;
+            descriptor.msaaSamples = 1;
+            descriptor.dimension = TextureDimension.Tex2D;
+
+            cmd.GetTemporaryRT(s_LightRenderTargets[blendStyleIndex].id, descriptor, FilterMode.Bilinear);
+
+            cmd.EnableShaderKeyword(k_UseBlendStyleKeywords[blendStyleIndex]);
+            s_LightRenderTargetsDirty[blendStyleIndex] = true;
+        }
+
+        static public void CreateShadowRenderTexture(CommandBuffer cmd, int blendStyleIndex)
+        {
+            float renderTextureScale = Mathf.Clamp(s_BlendStyles[blendStyleIndex].renderTextureScale, 0.01f, 1.0f);
+            int width = (int)(s_RenderingData.cameraData.cameraTargetDescriptor.width * renderTextureScale);
+            int height = (int)(s_RenderingData.cameraData.cameraTargetDescriptor.height * renderTextureScale);
+
+            RenderTextureDescriptor descriptor = new RenderTextureDescriptor(width, height);
             descriptor.colorFormat = RenderTextureFormat.ARGB32;
             descriptor.sRGB = false;
             descriptor.useMipMap = false;
             descriptor.autoGenerateMips = false;
             descriptor.depthBufferBits = 24;
-            descriptor.msaaSamples = 1;
             descriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_UNorm;
+            descriptor.msaaSamples = 1;
             descriptor.dimension = TextureDimension.Tex2D;
 
-            //TODO: Scale this based on the light's texture scale
-            descriptor.width = width;
-            descriptor.height = height;
+            cmd.GetTemporaryRT(s_ShadowsRenderTarget.id, descriptor, FilterMode.Bilinear);
+        }
 
-
-            cmd.GetTemporaryRT(s_ShadowsRenderTarget.id, descriptor, FilterMode.Bilinear); // Needs to be switch to R8 color format...            
+        static public void ReleaseShadowRenderTexture(CommandBuffer cmd)
+        {
+            cmd.ReleaseTemporaryRT(s_ShadowsRenderTarget.id);
         }
 
         static public void ReleaseRenderTextures(CommandBuffer cmd)
         {
             for (int i = 0; i < s_BlendStyles.Length; ++i)
             {
-                if (!s_BlendStyles[i].enabled)
-                    continue;
-
                 cmd.ReleaseTemporaryRT(s_LightRenderTargets[i].id);
             }
 
             cmd.ReleaseTemporaryRT(s_NormalsTarget.id);
             cmd.ReleaseTemporaryRT(s_ShadowsRenderTarget.id);
         }
+
 
         static private void RenderShadows(CommandBuffer cmdBuffer, int layerToRender, Light2D light, float shadowIntensity, RenderTargetIdentifier renderTexture)
         {
@@ -160,6 +187,8 @@ namespace UnityEngine.Experimental.Rendering.Universal
 
             if (shadowIntensity > 0)
             {
+                CreateShadowRenderTexture(cmdBuffer, light.blendStyleIndex);
+
                 cmdBuffer.SetRenderTarget(s_ShadowsRenderTarget.Identifier()); // This isn't efficient if this light doesn't cast shadow.
                 cmdBuffer.ClearRenderTarget(true, true, Color.black);
 
@@ -193,7 +222,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
                         {
                             List<CombineInstance> combine = new List<CombineInstance>();
                             Matrix4x4 baseTransform = shadowCasters[0].transform.worldToLocalMatrix;
-
+                            
                             // Draw the shadow casting group first, then draw the silhouttes..
                             for (int i = 0; i < shadowCasters.Count; i++)
                             {
@@ -218,7 +247,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
                                             CombineInstance ci = new CombineInstance() { mesh = shadowCaster.mesh, transform = baseTransform * shadowCaster.transform.localToWorldMatrix };
                                             combine.Add(ci);
                                         }
-                                    }
+                                    }                                
                                 }
                             }
 
@@ -230,7 +259,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
                             }
 
                             List<Matrix4x4> matrices = new List<Matrix4x4>();
-
+                            
                             for (int i = 0; i < shadowCasters.Count; i++)
                             {
                                 ShadowCaster2D shadowCaster = (ShadowCaster2D)shadowCasters[i];
@@ -248,7 +277,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
 
                                     if (inRange)
                                     {
-                                        if (shadowCaster.useRendererSilhouette)
+                                        if (shadowCaster.useRendererSilhouette) 
                                         {
                                             Renderer renderer = shadowCaster.GetComponent<Renderer>();
                                             if (renderer != null)
@@ -265,14 +294,13 @@ namespace UnityEngine.Experimental.Rendering.Universal
                                             {
                                                 Matrix4x4 meshMat = shadowCaster.transform.localToWorldMatrix;
                                                 //matrices.Add(meshMat);
-
                                                 cmdBuffer.DrawMesh(shadowCaster.mesh, meshMat, removeSelfShadowMaterial);
                                             }
                                         }
                                     }
                                 }
                             }
-
+                            
                             if (matrices.Count > 0)
                             {
                                 // couldn't get instanced rendering to work alas :(
@@ -287,11 +315,11 @@ namespace UnityEngine.Experimental.Rendering.Universal
                                 removeSelfShadowMaterial.enableInstancing = true;
                                 cmdBuffer.DrawMeshInstanced(shadowCasters[0].mesh, 0, removeSelfShadowMaterial, -1, matrices.ToArray());
                             }
-
                         }
                     }
                 }
 
+                ReleaseShadowRenderTexture(cmdBuffer);
                 cmdBuffer.SetRenderTarget(renderTexture);
             }
         }
@@ -299,7 +327,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
         static private bool RenderLightSet(Camera camera, int blendStyleIndex, CommandBuffer cmdBuffer, int layerToRender, RenderTargetIdentifier renderTexture, List<Light2D> lights)
         {
             bool renderedAnyLight = false;
-
+            
             foreach (var light in lights)
             {
                 if (light != null && light.lightType != Light2D.LightType.Global && light.blendStyleIndex == blendStyleIndex && light.IsLitLayer(layerToRender) && light.IsLightVisible(camera))
@@ -408,18 +436,10 @@ namespace UnityEngine.Experimental.Rendering.Universal
                     break;
 
                 string keyword = k_UseBlendStyleKeywords[i];
-                if (!s_BlendStyles[i].enabled)
-                {
-                    cmdBuffer.DisableShaderKeyword(keyword);
-                    continue;
-                }
-                else
-                {
-                    cmdBuffer.EnableShaderKeyword(keyword);
-                    cmdBuffer.SetGlobalVector(k_BlendFactorsPropNames[i], s_BlendStyles[i].blendFactors);
-                    cmdBuffer.SetGlobalVector(k_MaskFilterPropNames[i], s_BlendStyles[i].maskTextureChannelFilter.mask);
-                    cmdBuffer.SetGlobalVector(k_InvertedFilterPropNames[i], s_BlendStyles[i].maskTextureChannelFilter.inverted);
-                }
+                cmdBuffer.DisableShaderKeyword(keyword);
+                cmdBuffer.SetGlobalVector(k_BlendFactorsPropNames[i], s_BlendStyles[i].blendFactors);
+                cmdBuffer.SetGlobalVector(k_MaskFilterPropNames[i], s_BlendStyles[i].maskTextureChannelFilter.mask);
+                cmdBuffer.SetGlobalVector(k_InvertedFilterPropNames[i], s_BlendStyles[i].maskTextureChannelFilter.inverted);
             }
 
             cmdBuffer.SetGlobalTexture("_FalloffLookup", GetFalloffLookupTexture());
@@ -523,12 +543,11 @@ namespace UnityEngine.Experimental.Rendering.Universal
             renderContext.DrawRenderers(cullResults, ref drawSettings, ref filterSettings);
         }
 
-        static public void RenderLights(Camera camera, CommandBuffer cmdBuffer, int layerToRender)
+        static public void RenderLights(Camera camera, CommandBuffer cmdBuffer, int layerToRender, uint blendStylesUsed)
         {
             for (int i = 0; i < s_BlendStyles.Length; ++i)
             {
-
-                if (!s_BlendStyles[i].enabled)
+                if ((blendStylesUsed & (uint)(1<<i)) == 0)
                     continue;
 
                 string sampleName = s_BlendStyles[i].name;
@@ -561,11 +580,11 @@ namespace UnityEngine.Experimental.Rendering.Universal
             }
         }
 
-        static public void RenderLightVolumes(Camera camera, CommandBuffer cmdBuffer, int layerToRender, RenderTargetIdentifier renderTarget)
+        static public void RenderLightVolumes(Camera camera, CommandBuffer cmdBuffer, int layerToRender, RenderTargetIdentifier renderTarget, uint blendStylesUsed)
         {
             for (int i = 0; i < s_BlendStyles.Length; ++i)
             {
-                if (!s_BlendStyles[i].enabled)
+                if ((blendStylesUsed & (uint)(1 << i)) == 0)
                     continue;
 
                 string sampleName = s_BlendStyles[i].name;
@@ -616,10 +635,10 @@ namespace UnityEngine.Experimental.Rendering.Universal
             Material material;
 
             if (isVolume)
-                material = CoreUtils.CreateEngineMaterial(isShape ? s_RendererData.shapeLightVolumeShader : s_RendererData.pointLightVolumeShader);
+                material = CoreUtils.CreateEngineMaterial(isShape ? s_Renderer2DData.shapeLightVolumeShader : s_Renderer2DData.pointLightVolumeShader);
             else
             {
-                material = CoreUtils.CreateEngineMaterial(isShape ? s_RendererData.shapeLightShader : s_RendererData.pointLightShader);
+                material = CoreUtils.CreateEngineMaterial(isShape ? s_Renderer2DData.shapeLightShader : s_Renderer2DData.pointLightShader);
 
                 if (!light.alphaBlendOnOverlap)
                 {
@@ -660,7 +679,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
             int shadowMaterialIndex = index % 255;
             if(s_ShadowMaterials[shadowMaterialIndex] == null)
             {
-                s_ShadowMaterials[shadowMaterialIndex] = CoreUtils.CreateEngineMaterial(s_RendererData.shadowGroupShader);
+                s_ShadowMaterials[shadowMaterialIndex] = CoreUtils.CreateEngineMaterial(s_Renderer2DData.shadowGroupShader);
                 s_ShadowMaterials[shadowMaterialIndex].SetFloat("_ShadowStencilGroup", index);
             }
 
@@ -672,7 +691,7 @@ namespace UnityEngine.Experimental.Rendering.Universal
             int shadowMaterialIndex = index % 255;
             if (s_RemoveSelfShadowMaterials[shadowMaterialIndex] == null)
             {
-                s_RemoveSelfShadowMaterials[shadowMaterialIndex] = CoreUtils.CreateEngineMaterial(s_RendererData.removeSelfShadowShader);
+                s_RemoveSelfShadowMaterials[shadowMaterialIndex] = CoreUtils.CreateEngineMaterial(s_Renderer2DData.removeSelfShadowShader);
                 s_RemoveSelfShadowMaterials[shadowMaterialIndex].SetFloat("_ShadowStencilGroup", index);
             }
 
